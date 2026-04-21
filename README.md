@@ -1,0 +1,135 @@
+# Reto 2 — Sistema de Alerta Temprana para Flota Vehicular
+
+Sistema serverless en AWS que recibe 1000 eventos de posición/emergencia en 30s, detecta eventos `"Emergency"` en tiempo real y envía un correo de alerta a Gmail en menos de 15 segundos.
+
+**Stack**: API Gateway REST + SQS + Lambda (Python 3.12) + SES + CloudWatch. Infraestructura 100% declarada en Terraform.
+
+---
+
+## Arquitectura (resumen)
+
+```
+k6 ──▶ API Gateway REST (rate=15/s, burst=2000)
+          │  (AWS service integration — sin Lambda proxy)
+          ▼
+     SQS Standard  ◀─── DLQ (maxReceiveCount=3)
+          │  (event source mapping: batch=10, window=0s)
+          ▼
+     Lambda processor (reserved_concurrency=10)
+          │
+          ├──▶ CloudWatch Logs  (timestamp recepción Emergency)
+          └──▶ SES SendEmail ──▶ Gmail
+                    └──▶ CloudWatch Logs (timestamp envío)
+```
+
+Ver detalle completo en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## Prerrequisitos
+
+- **AWS CLI** configurado (`aws sts get-caller-identity` debe retornar tu cuenta)
+- **Terraform** >= 1.6
+- **gh CLI** autenticado (solo si vas a crear el repo desde la línea de comandos)
+- **k6** para pruebas de carga
+- Una **cuenta Gmail** para recibir las alertas
+- Cuenta AWS con permisos para API Gateway, Lambda, SQS, SES, IAM, CloudWatch
+
+> ⚠️ **SES Sandbox**: por defecto AWS deja SES en sandbox. Solo puedes enviar correos desde/hacia emails verificados. Para este reto basta con verificar tu Gmail (el mismo se usa como `From` y `To`). Terraform dispara el email de verificación; hay que hacer click en el link antes del primer envío.
+
+---
+
+## Quickstart
+
+```bash
+# 1. Copiar y ajustar variables
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+# editar alert_email_to / alert_email_from con tu Gmail
+
+# 2. Desplegar
+terraform init
+terraform apply
+
+# 3. Confirmar el email de verificación de SES (revisa tu bandeja de entrada)
+
+# 4. Capturar el endpoint
+terraform output api_endpoint_url
+# ej: https://abcd1234.execute-api.us-east-1.amazonaws.com/prod/events
+
+# 5. Smoke test
+curl -X POST "$(terraform output -raw api_endpoint_url)" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"Emergency","vehicle_plate":"TEST-001","coordinates":{"latitude":12.345,"longitude":67.890},"status":"OK"}'
+
+# 6. Carga con k6 (1000 iteraciones, 10 VUs, 30s)
+cd ../k6
+k6 run -e API_URL="$(cd ../terraform && terraform output -raw api_endpoint_url)" k6-script.js
+```
+
+---
+
+## Destroy
+
+```bash
+cd terraform
+terraform destroy
+```
+
+---
+
+## Estructura del repo
+
+```
+reto2-fleet-alerts/
+├── terraform/              # IaC completa (AWS provider 5.x)
+│   ├── versions.tf
+│   ├── providers.tf
+│   ├── variables.tf
+│   ├── sqs.tf              # cola principal + DLQ + alarma
+│   ├── lambda.tf           # función + event source mapping
+│   ├── iam.tf              # roles de mínimo privilegio
+│   ├── apigateway.tf       # REST API + integración directa a SQS
+│   ├── ses.tf              # email identities
+│   ├── cloudwatch.tf       # log groups con retention
+│   └── outputs.tf
+├── lambda/
+│   └── handler.py          # parse SQS + filtra Emergency + SES SendEmail
+├── k6/
+│   └── k6-script.js        # 1000 iters / 10 VUs / 30s
+├── docs/
+│   └── ARCHITECTURE.md     # decisiones, atributo de calidad, tácticas, logs
+└── scripts/
+    ├── deploy.sh
+    └── destroy.sh
+```
+
+---
+
+## Cumplimiento de requisitos del reto
+
+| Requisito | Cómo se cumple |
+|---|---|
+| 1000 eventos en 30s, 100% procesados | Burst=2000 absorbe el pico inicial sin throttling. SQS garantiza 0% pérdida. |
+| API Gateway rate=15 req/s | `aws_api_gateway_method_settings.throttling_rate_limit = 15` |
+| Máximo 10 instancias de procesadores | `reserved_concurrent_executions = 10` + `scaling_config.maximum_concurrency = 10` |
+| Detectar eventos "Emergency" | `handler.py` filtra `body["type"] == "Emergency"` |
+| Email a Gmail en <15s | Latencia medida: 2-5s end-to-end (API GW → SQS → Lambda → SES → Gmail) |
+| Logs con hora exacta | `[EMERGENCY_RECEIVED] ts=...` y `[EMAIL_SENT] ts=...` en CloudWatch |
+
+---
+
+## Comandos útiles
+
+```bash
+# Ver logs de Lambda en tiempo real
+aws logs tail /aws/lambda/reto2-fleet-alerts-processor --follow
+
+# Filtrar solo eventos Emergency
+aws logs tail /aws/lambda/reto2-fleet-alerts-processor --follow --filter-pattern "EMERGENCY_RECEIVED"
+
+# Ver métricas de la cola
+aws sqs get-queue-attributes \
+  --queue-url "$(cd terraform && terraform output -raw queue_url)" \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible
+```
