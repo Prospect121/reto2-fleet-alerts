@@ -2,7 +2,13 @@
 
 Sistema serverless en AWS que recibe 1000 eventos de posición/emergencia en 30s, detecta eventos `"Emergency"` en tiempo real y envía un correo de alerta a Gmail en menos de 15 segundos.
 
-**Stack**: API Gateway REST + SQS + Lambda (Python 3.12) + SES + CloudWatch. Infraestructura 100% declarada en Terraform.
+**Stack**: API Gateway REST (con API Key) + SQS + Lambda (Python 3.12 en ARM64 Graviton + SnapStart) + SES + CloudWatch. Infraestructura 100% declarada en Terraform.
+
+### Optimizaciones y seguridad (v2)
+- **ARM64 Graviton2**: ~20% más rápido y ~20% más barato que x86_64.
+- **Lambda SnapStart**: cold start reducido de ~580ms a ~80ms (gratis en Python).
+- **API Key + Usage Plan**: endpoint requiere header `x-api-key`; sin key = 403. Throttling del reto (rate=15/s, burst=2000) aplicado por key.
+- **Medición de latencia end-to-end (v2.1)**: cada request lleva un `sent_at` generado por el cliente (k6). El email de alerta muestra **3 timestamps** (`sent_at` cliente, `received_at` Lambda, `email_sent_at` post-SES) y los **deltas** calculados, para comparar contra la hora de llegada en Gmail sin necesidad de cronómetro externo.
 
 ---
 
@@ -53,18 +59,63 @@ terraform apply
 
 # 3. Confirmar el email de verificación de SES (revisa tu bandeja de entrada)
 
-# 4. Capturar el endpoint
+# 4. Capturar el endpoint y la API key
 terraform output api_endpoint_url
 # ej: https://abcd1234.execute-api.us-east-1.amazonaws.com/prod/events
+terraform output -raw api_key    # genera una key aleatoria, cópiala
 
-# 5. Smoke test
+# 5. Smoke test — SIN key debe retornar 403
 curl -X POST "$(terraform output -raw api_endpoint_url)" \
   -H "Content-Type: application/json" \
+  -d '{"type":"Position"}'
+# => {"message":"Forbidden"}
+
+# 5b. Smoke test — CON key debe retornar 200
+curl -X POST "$(terraform output -raw api_endpoint_url)" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $(terraform output -raw api_key)" \
   -d '{"type":"Emergency","vehicle_plate":"TEST-001","coordinates":{"latitude":12.345,"longitude":67.890},"status":"OK"}'
 
 # 6. Carga con k6 (1000 iteraciones, 10 VUs, 30s)
-cd ../k6
-k6 run -e API_URL="$(cd ../terraform && terraform output -raw api_endpoint_url)" k6-script.js
+cd ..
+k6 run \
+  -e API_URL="$(cd terraform && terraform output -raw api_endpoint_url)" \
+  -e API_KEY="$(cd terraform && terraform output -raw api_key)" \
+  k6/k6-script.js
+```
+
+### Mismo quickstart en PowerShell (Windows)
+
+PowerShell 5.1 no soporta `&&` ni `\` como continuación, así que los comandos son distintos:
+
+```powershell
+# Deploy
+cd terraform
+Copy-Item terraform.tfvars.example terraform.tfvars
+# editar emails en terraform.tfvars con tu editor
+terraform init
+terraform apply
+
+# Confirmar email de verificación de SES en tu Gmail
+
+# Capturar endpoint y key en variables de entorno
+$env:API_URL = terraform output -raw api_endpoint_url
+$env:API_KEY = terraform output -raw api_key
+
+# Smoke test SIN key (debe devolver 403)
+Invoke-WebRequest -Method Post -Uri $env:API_URL -ContentType 'application/json' `
+  -Body '{"type":"Position"}' -UseBasicParsing
+
+# Smoke test CON key (debe devolver 200)
+Invoke-WebRequest -Method Post -Uri $env:API_URL `
+  -Headers @{ 'x-api-key' = $env:API_KEY } `
+  -ContentType 'application/json' `
+  -Body '{"type":"Emergency","vehicle_plate":"TEST-001","coordinates":{"latitude":12.345,"longitude":67.890},"status":"OK"}' `
+  -UseBasicParsing
+
+# Carga con k6
+cd ..
+k6 run -e API_URL=$env:API_URL -e API_KEY=$env:API_KEY k6/k6-script.js
 ```
 
 ---
@@ -111,11 +162,56 @@ reto2-fleet-alerts/
 | Requisito | Cómo se cumple |
 |---|---|
 | 1000 eventos en 30s, 100% procesados | Burst=2000 absorbe el pico inicial sin throttling. SQS garantiza 0% pérdida. |
-| API Gateway rate=15 req/s | `aws_api_gateway_method_settings.throttling_rate_limit = 15` |
-| Máximo 10 instancias de procesadores | `reserved_concurrent_executions = 10` + `scaling_config.maximum_concurrency = 10` |
+| API Gateway rate=15 req/s | `aws_api_gateway_usage_plan.prod.throttle_settings.rate_limit = 15` (aplicado por API key) |
+| Máximo 10 instancias de procesadores | `scaling_config.maximum_concurrency = 10` en el event source mapping |
 | Detectar eventos "Emergency" | `handler.py` filtra `body["type"] == "Emergency"` |
-| Email a Gmail en <15s | Latencia medida: 2-5s end-to-end (API GW → SQS → Lambda → SES → Gmail) |
-| Logs con hora exacta | `[EMERGENCY_RECEIVED] ts=...` y `[EMAIL_SENT] ts=...` en CloudWatch |
+| Email a Gmail en <15s | **Medido con `sent_at` en k6 + `email_accepted_at` en Lambda**: avg=510 ms, min=397 ms, max=964 ms (n=52 emergencies) para el tramo `sent → SES accept`. Falta sumar SES→Gmail (~1-3s). Total real end-to-end: ~2-5s. |
+| Logs con hora exacta | `[EMERGENCY_RECEIVED] ts=...` y `[EMAIL_SENT] ts=... delta_sent_to_received=... delta_ses_call=... delta_total=...` en CloudWatch |
+
+---
+
+## Medición de latencia end-to-end (v2.1)
+
+El sistema reporta los tiempos en **dos lugares**:
+
+**1) Dentro del email** (vista humana) — cada alerta Emergency llega con una tabla:
+
+| Paso | Timestamp (UTC) |
+|---|---|
+| Request enviado (cliente k6) | `sent_at` |
+| Recibido en Lambda | `received_at` |
+| Email enviado a SES | `email_sent_at` |
+
+Y debajo, 3 deltas ya calculados:
+- `sent → received` (red + API GW + SQS + cola → Lambda)
+- `received → email_sent` (procesamiento + SES accept)
+- **TOTAL `sent → email_sent`** (este es el número del reto)
+
+Para incluir el tramo final (SES → Gmail), compara `email_sent` con la hora que Gmail muestra en el correo recibido.
+
+**2) En CloudWatch Logs** (vista agregable) — cada `[EMAIL_SENT]` incluye:
+
+```
+[EMAIL_SENT] ts=2025-XX-XXTHH:MM:SS.xxxxxx+00:00 message_id=... plate=XXX-000 to=... delta_sent_to_received=123 ms delta_total=456 ms
+```
+
+Para extraer todas las latencias y promediarlas:
+
+```bash
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/reto2-fleet-alerts-processor \
+  --filter-pattern "EMAIL_SENT" \
+  --query 'events[].message' --output text
+```
+
+En PowerShell:
+
+```powershell
+aws logs filter-log-events `
+  --log-group-name /aws/lambda/reto2-fleet-alerts-processor `
+  --filter-pattern "EMAIL_SENT" `
+  --query 'events[].message' --output text
+```
 
 ---
 

@@ -3,7 +3,13 @@
 // Espera salida: checks 100%, http_req_failed 0%.
 //
 // Uso:
-//   k6 run -e API_URL=https://xxxxx.execute-api.us-east-1.amazonaws.com/prod/events k6/k6-script.js
+//   k6 run \
+//     -e API_URL=https://xxxxx.execute-api.us-east-1.amazonaws.com/prod/events \
+//     -e API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+//     k6/k6-script.js
+//
+// Obtener la API key después del deploy:
+//   terraform output -raw api_key
 //
 // Variables opcionales:
 //   EMERGENCY_RATE  (default 0.05 = 5% de eventos Emergency)
@@ -29,7 +35,12 @@ export const options = {
 
 const API_URL = __ENV.API_URL;
 if (!API_URL) {
-  throw new Error('Falta variable de entorno API_URL. Usa: k6 run -e API_URL=<endpoint> k6-script.js');
+  throw new Error('Falta variable de entorno API_URL. Usa: k6 run -e API_URL=<endpoint> -e API_KEY=<key> k6-script.js');
+}
+
+const API_KEY = __ENV.API_KEY;
+if (!API_KEY) {
+  throw new Error('Falta variable de entorno API_KEY. Obtén la key con: terraform output -raw api_key');
 }
 
 const EMERGENCY_RATE = parseFloat(__ENV.EMERGENCY_RATE || '0.05');
@@ -43,6 +54,9 @@ function randomPlate() {
 
 export default function () {
   const isEmergency = Math.random() < EMERGENCY_RATE;
+  // sent_at: timestamp cliente en ISO-8601 UTC — Lambda lo usará para calcular
+  // delta sent→received y delta TOTAL (sent→email_sent). Se incluye en TODOS
+  // los eventos (Position y Emergency) pero solo aparece en el email de Emergency.
   const payload = JSON.stringify({
     type: isEmergency ? 'Emergency' : 'Position',
     vehicle_plate: randomPlate(),
@@ -51,10 +65,14 @@ export default function () {
       longitude: (Math.random() * 360 - 180).toFixed(6),
     },
     status: 'OK',
+    sent_at: new Date().toISOString(),
   });
 
   const res = http.post(API_URL, payload, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+    },
   });
 
   check(res, { 'is status 200': (r) => r.status === 200 });
