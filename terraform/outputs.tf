@@ -3,6 +3,12 @@ output "api_endpoint_url" {
   value       = "${aws_api_gateway_stage.prod.invoke_url}/events"
 }
 
+output "api_key" {
+  description = "API key para header x-api-key. Obtener en claro con: terraform output -raw api_key"
+  value       = aws_api_gateway_api_key.k6.value
+  sensitive   = true
+}
+
 output "queue_url" {
   value = aws_sqs_queue.events.url
 }

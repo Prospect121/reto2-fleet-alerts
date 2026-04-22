@@ -24,11 +24,12 @@ resource "aws_api_gateway_resource" "events" {
 }
 
 resource "aws_api_gateway_method" "post_events" {
-  rest_api_id   = aws_api_gateway_rest_api.this.id
-  resource_id   = aws_api_gateway_resource.events.id
-  http_method   = "POST"
-  authorization = "NONE"
-  api_key_required = false
+  rest_api_id      = aws_api_gateway_rest_api.this.id
+  resource_id      = aws_api_gateway_resource.events.id
+  http_method      = "POST"
+  authorization    = "NONE"
+  # Seguridad v2: requerir header x-api-key. Sin key => 403 Forbidden.
+  api_key_required = true
 }
 
 # Integración AWS service -> SQS SendMessage
@@ -128,18 +129,19 @@ resource "aws_api_gateway_stage" "prod" {
   depends_on = [aws_api_gateway_account.this]
 }
 
-# Throttling a nivel de método (aplica rate=15, burst=2000 al stage)
+# Method settings — logging/metrics.
+# NOTA: el throttling rate=15 / burst=2000 se movió al usage plan (ver apikey.tf),
+# que lo aplica POR API KEY. Así cada cliente tiene su cupo independiente y el
+# throttling de stage queda abierto como fallback general.
 resource "aws_api_gateway_method_settings" "all" {
   rest_api_id = aws_api_gateway_rest_api.this.id
   stage_name  = aws_api_gateway_stage.prod.stage_name
   method_path = "*/*"
 
   settings {
-    throttling_rate_limit  = var.api_throttling_rate_limit
-    throttling_burst_limit = var.api_throttling_burst_limit
-    metrics_enabled        = true
-    logging_level          = "INFO"
-    data_trace_enabled     = false
+    metrics_enabled    = true
+    logging_level      = "INFO"
+    data_trace_enabled = false
   }
 }
 
