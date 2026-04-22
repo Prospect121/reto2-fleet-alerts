@@ -69,6 +69,8 @@ def _build_email_html(
     sent_at: str,
     received_at: str,
     email_sent_at: str,
+    request_seq=None,
+    total_requests=None,
 ) -> str:
     lat = coords.get("latitude", "N/A")
     lon = coords.get("longitude", "N/A")
@@ -77,10 +79,18 @@ def _build_email_html(
     d_recv_sent = _delta_ms(received_at, email_sent_at)
     d_total = _delta_ms(sent_at, email_sent_at) if sent_at else "N/A"
 
+    if request_seq is not None and total_requests:
+        seq_label = f"#{int(request_seq):04d} / {int(total_requests):04d}"
+    elif request_seq is not None:
+        seq_label = f"#{int(request_seq):04d}"
+    else:
+        seq_label = "N/A"
+
     return f"""
     <html>
       <body style="font-family: Arial, sans-serif; max-width:640px;">
-        <h2 style="color:#c0392b;">🚨 Alerta de Emergencia</h2>
+        <h2 style="color:#c0392b;">🚨 Alerta de Emergencia [{seq_label}]</h2>
+        <p><strong>Secuencia:</strong> {seq_label}</p>
         <p><strong>Placa:</strong> {plate}</p>
         <p><strong>Estado:</strong> {status}</p>
         <p><strong>Evento:</strong> Emergency</p>
@@ -134,19 +144,31 @@ def _send_emergency_email(
     plate = body.get("vehicle_plate", "UNKNOWN")
     status = body.get("status", "UNKNOWN")
     coords = body.get("coordinates", {}) or {}
+    request_seq = body.get("request_seq")
+    total_requests = body.get("total_requests")
 
     # Pre-SES: se inyecta en el HTML del correo.
     email_prepared_at = _now_iso()
+
+    # Subject con número de secuencia para conteo/búsqueda rápida en Gmail.
+    # Ej.: "🚨 Alerta #0042/1000 - ABC-123"
+    if request_seq is not None and total_requests:
+        subject = f"🚨 Alerta #{int(request_seq):04d}/{int(total_requests):04d} - {plate}"
+    elif request_seq is not None:
+        subject = f"🚨 Alerta #{int(request_seq):04d} - {plate}"
+    else:
+        subject = f"🚨 Alerta de Emergencia - {plate}"
 
     ses.send_email(
         Source=EMAIL_FROM,
         Destination={"ToAddresses": [EMAIL_TO]},
         Message={
-            "Subject": {"Data": "🚨 Alerta de Emergencia", "Charset": "UTF-8"},
+            "Subject": {"Data": subject, "Charset": "UTF-8"},
             "Body": {
                 "Html": {
                     "Data": _build_email_html(
-                        plate, status, coords, sent_at, received_at, email_prepared_at
+                        plate, status, coords, sent_at, received_at, email_prepared_at,
+                        request_seq=request_seq, total_requests=total_requests,
                     ),
                     "Charset": "UTF-8",
                 }
@@ -171,11 +193,12 @@ def lambda_handler(event, context):
             evt_type = body.get("type")
             plate = body.get("vehicle_plate", "UNKNOWN")
             sent_at = body.get("sent_at")  # timestamp opcional del cliente (k6)
+            request_seq = body.get("request_seq")
 
             if evt_type == "Emergency":
                 log.info(
                     f"[EMERGENCY_RECEIVED] ts={received_at} "
-                    f"sent_at={sent_at or 'N/A'} "
+                    f"sent_at={sent_at or 'N/A'} request_seq={request_seq or 'N/A'} "
                     f"message_id={message_id} plate={plate} payload={json.dumps(body)}"
                 )
                 email_prepared_at, email_accepted_at = _send_emergency_email(
@@ -186,6 +209,7 @@ def lambda_handler(event, context):
                 d_total = _delta_ms(sent_at, email_accepted_at) if sent_at else "N/A"
                 log.info(
                     f"[EMAIL_SENT] ts={email_accepted_at} "
+                    f"request_seq={request_seq or 'N/A'} "
                     f"message_id={message_id} plate={plate} to={EMAIL_TO} "
                     f"delta_sent_to_received={d_sent_recv} "
                     f"delta_ses_call={d_ses_call} delta_total={d_total}"

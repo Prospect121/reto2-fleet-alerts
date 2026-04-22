@@ -9,6 +9,7 @@ Sistema serverless en AWS que recibe 1000 eventos de posición/emergencia en 30s
 - **Lambda SnapStart**: cold start reducido de ~580ms a ~80ms (gratis en Python).
 - **API Key + Usage Plan**: endpoint requiere header `x-api-key`; sin key = 403. Throttling del reto (rate=15/s, burst=2000) aplicado por key.
 - **Medición de latencia end-to-end (v2.1)**: cada request lleva un `sent_at` generado por el cliente (k6). El email de alerta muestra **3 timestamps** (`sent_at` cliente, `received_at` Lambda, `email_sent_at` post-SES) y los **deltas** calculados, para comparar contra la hora de llegada en Gmail sin necesidad de cronómetro externo.
+- **Secuencia por correo (v2.2)**: cada request incluye `request_seq` (1..N) y el subject del correo queda como `🚨 Alerta #0042/1000 - ABC-123`. Permite conteo rápido en Gmail: buscar `subject:"🚨 Alerta #"` → Gmail muestra el total en el selector.
 
 ---
 

@@ -16,6 +16,7 @@
 
 import http from 'k6/http';
 import { check } from 'k6';
+import exec from 'k6/execution';
 
 export const options = {
   scenarios: {
@@ -54,9 +55,14 @@ function randomPlate() {
 
 export default function () {
   const isEmergency = Math.random() < EMERGENCY_RATE;
-  // sent_at: timestamp cliente en ISO-8601 UTC — Lambda lo usará para calcular
-  // delta sent→received y delta TOTAL (sent→email_sent). Se incluye en TODOS
-  // los eventos (Position y Emergency) pero solo aparece en el email de Emergency.
+  // request_seq: índice global 1..N de la iteración en el test (único entre VUs).
+  // Se usa en el subject del correo para conteo rápido desde Gmail.
+  // total_requests: límite superior del test (iterations option).
+  const requestSeq = exec.scenario.iterationInTest + 1; // 1-indexed para humanos
+  const totalRequests = exec.scenario.iterationInTest >= 0
+    ? (exec.test.options.scenarios.default.iterations || 0)
+    : 0;
+
   const payload = JSON.stringify({
     type: isEmergency ? 'Emergency' : 'Position',
     vehicle_plate: randomPlate(),
@@ -66,6 +72,8 @@ export default function () {
     },
     status: 'OK',
     sent_at: new Date().toISOString(),
+    request_seq: requestSeq,
+    total_requests: totalRequests,
   });
 
   const res = http.post(API_URL, payload, {
