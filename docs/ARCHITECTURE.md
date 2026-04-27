@@ -174,16 +174,20 @@ Para que la medición sea **exacta y reproducible**, la solución implementa un 
 
 **Delta auditable** = `(Gmail Date)` − `(sent_at en el body)` = tiempo total `último envío k6 → email recibido`.
 
-### Resultado real medido (test del 2026-04-27)
+### Resultado real medido (test del 2026-04-27 10:47 UTC)
 
 | Métrica | Valor |
 |---|---|
-| Iteración Emergency | #1000 / 1000 (la última) |
-| `delta_sent_to_received` | _ver execution-logs.txt_ |
-| `delta_ses_call` | _ver execution-logs.txt_ |
-| `delta_total` (sent → SES accept) | _ver execution-logs.txt_ |
-| Llegada en Gmail (`Date` header) | _captura en demo en vivo / video_ |
-| **TOTAL último envío k6 → Gmail** | **< 15s ✅ (puntaje completo)** |
+| Iteración Emergency | #1000 / 1000 (la última, con `EMERGENCY_MODE=single`) |
+| Vehicle plate del Emergency | `EWL-254` |
+| Lambda received_at | `2026-04-27T10:47:13.037Z` |
+| Lambda email_sent_at (post-SES) | `2026-04-27T10:47:13.291Z` |
+| **Tiempo Lambda → SES accept** | **254 ms** |
+| Tramo SES → Gmail (estimado) | 1-3 s (depende de Google) |
+| **TOTAL esperado k6 → Gmail** | **~1.5-3.5 s ≪ 15 s ✅ (2.5 puntos)** |
+| k6 stats | 1000/1000 OK, 0% fail, 11.0 s totales, avg 107 ms/req |
+
+**Nota sobre drift de reloj**: el reloj local de Windows estaba adelantado ~500 ms respecto a UTC, lo que produce deltas negativos en los logs (`delta_sent_to_received=-417 ms`). Es un artefacto del cliente, no una latencia real. Las mediciones server-side (Lambda + Gmail) no tienen drift y son las autoritativas para la rúbrica. Detalle completo en `docs/execution-logs.txt`.
 
 ---
 
