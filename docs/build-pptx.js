@@ -24,9 +24,17 @@ const FONT_BODY = "Calibri";
 
 const pres = new pptxgen();
 pres.layout = "LAYOUT_WIDE"; // 13.3 x 7.5
-pres.author = "Erick Nieto";
+pres.author = "Luis Fernando Padilla, Erick Nieto, Raul Valencia, Juan Bohorquez";
 pres.company = "Diplomado Arquitecturas Cloud — Modulo 2";
 pres.title = "Reto 2 - Sistema de Alerta Temprana";
+
+const TEAM = [
+  "Luis Fernando Padilla",
+  "Erick Nieto",
+  "Raul Valencia",
+  "Juan Bohorquez",
+];
+const TEAM_FOOTER = "Padilla / Nieto / Valencia / Bohorquez";
 
 // Helpers
 function addTitleBar(slide, title, subtitle) {
@@ -45,10 +53,10 @@ function addTitleBar(slide, title, subtitle) {
 }
 
 function addFooter(slide, pageNum) {
-  slide.addText("Reto 2 - Sistema de Alerta Temprana | Erick Nieto | 2026-04-27",
-    { x: 0.5, y: 7.05, w: 9, h: 0.3, fontFace: FONT_BODY, fontSize: 10, color: MUTED, align: "left", margin: 0 });
+  slide.addText(`Reto 2 - Sistema de Alerta Temprana | Equipo: ${TEAM_FOOTER} | 2026-04-27`,
+    { x: 0.5, y: 7.05, w: 11.5, h: 0.3, fontFace: FONT_BODY, fontSize: 9, color: MUTED, align: "left", margin: 0 });
   slide.addText(`${pageNum}`,
-    { x: 12.5, y: 7.05, w: 0.3, h: 0.3, fontFace: FONT_BODY, fontSize: 10, color: MUTED, align: "right", margin: 0 });
+    { x: 12.5, y: 7.05, w: 0.3, h: 0.3, fontFace: FONT_BODY, fontSize: 9, color: MUTED, align: "right", margin: 0 });
 }
 
 // =====================================================================
@@ -92,15 +100,22 @@ function addFooter(slide, pageNum) {
     fontFace: FONT_BODY, fontSize: 13, color: "94A3B8", margin: 0,
   });
 
-  // Author block
-  s.addShape(pres.shapes.RECTANGLE, { x: 0.9, y: 6.0, w: 0.06, h: 1.0, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 } });
-  s.addText("Erick Nieto", {
-    x: 1.1, y: 6.0, w: 8, h: 0.45,
-    fontFace: FONT_HEAD, fontSize: 18, bold: true, color: WHITE, margin: 0,
+  // Team block - 4 names in 2x2 grid with accent bar
+  s.addShape(pres.shapes.RECTANGLE, { x: 0.9, y: 5.85, w: 0.06, h: 1.25, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 } });
+  s.addText("EQUIPO", {
+    x: 1.1, y: 5.85, w: 11, h: 0.3,
+    fontFace: FONT_HEAD, fontSize: 11, bold: true, color: "94A3B8", charSpacing: 4, margin: 0,
   });
+  // Names in 2 columns x 2 rows
+  const nameOpts = { fontFace: FONT_HEAD, fontSize: 16, bold: true, color: WHITE, margin: 0, valign: "middle" };
+  s.addText(TEAM[0], { x: 1.1, y: 6.18, w: 5.5, h: 0.4, ...nameOpts });
+  s.addText(TEAM[1], { x: 6.7, y: 6.18, w: 5.5, h: 0.4, ...nameOpts });
+  s.addText(TEAM[2], { x: 1.1, y: 6.6, w: 5.5, h: 0.4, ...nameOpts });
+  s.addText(TEAM[3], { x: 6.7, y: 6.6, w: 5.5, h: 0.4, ...nameOpts });
+  // Date + repo
   s.addText("2026-04-27  |  github.com/Prospect121/reto2-fleet-alerts", {
-    x: 1.1, y: 6.45, w: 11, h: 0.4,
-    fontFace: FONT_BODY, fontSize: 12, color: "94A3B8", margin: 0,
+    x: 0.9, y: 7.15, w: 11, h: 0.3,
+    fontFace: FONT_BODY, fontSize: 11, color: "64748B", margin: 0,
   });
 }
 
@@ -661,9 +676,13 @@ function addFooter(slide, pageNum) {
     fontFace: "Consolas", fontSize: 12, margin: 0,
   });
 
-  s.addText("Erick Nieto  |  Diplomado Arquitecturas Cloud  |  Modulo 2  |  2026-04-27", {
-    x: 0.9, y: 6.7, w: 11.5, h: 0.3,
-    fontFace: FONT_BODY, fontSize: 11, color: "64748B", margin: 0,
+  s.addText(`Equipo: ${TEAM.join("  |  ")}`, {
+    x: 0.9, y: 6.55, w: 11.5, h: 0.3,
+    fontFace: FONT_HEAD, fontSize: 11, bold: true, color: "CBD5E1", margin: 0,
+  });
+  s.addText("Diplomado Arquitecturas Cloud  |  Modulo 2  |  2026-04-27", {
+    x: 0.9, y: 6.85, w: 11.5, h: 0.3,
+    fontFace: FONT_BODY, fontSize: 10, color: "64748B", margin: 0,
   });
 }
 
