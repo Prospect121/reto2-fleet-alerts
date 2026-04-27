@@ -100,8 +100,14 @@ terraform apply
 # Confirmar email de verificación de SES en tu Gmail
 
 # Capturar endpoint y key en variables de entorno
+# IMPORTANTE: "terraform output" debe correrse DENTRO de terraform/ (donde vive el state).
+# Si lo corres fuera, devuelve un warning "No outputs found" y la var queda con basura.
 $env:API_URL = terraform output -raw api_endpoint_url
 $env:API_KEY = terraform output -raw api_key
+
+# Verifica que no estén vacías ni contengan "Warning"
+$env:API_URL
+$env:API_KEY
 
 # Smoke test SIN key (debe devolver 403)
 Invoke-WebRequest -Method Post -Uri $env:API_URL -ContentType 'application/json' `
@@ -114,7 +120,7 @@ Invoke-WebRequest -Method Post -Uri $env:API_URL `
   -Body '{"type":"Emergency","vehicle_plate":"TEST-001","coordinates":{"latitude":12.345,"longitude":67.890},"status":"OK"}' `
   -UseBasicParsing
 
-# Carga con k6
+# Carga con k6 — las vars ya están seteadas, solo volvemos a la raíz
 cd ..
 k6 run -e API_URL=$env:API_URL -e API_KEY=$env:API_KEY k6/k6-script.js
 ```

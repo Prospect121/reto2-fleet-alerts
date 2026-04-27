@@ -1,4 +1,11 @@
-# Documentación Técnica — Reto 2
+# Documentación Técnica — Reto 2: Sistema de Alerta Temprana para Flota Vehicular
+
+> **Estudiante:** Erick — Diplomado en Arquitecturas Cloud, Módulo 2
+> **Repo:** https://github.com/Prospect121/reto2-fleet-alerts
+> **Fecha:** 2026-04-27
+> **Cuenta Gmail destino:** `erickcloud44@gmail.com`
+
+---
 
 ## 1. Diagrama de la arquitectura
 
@@ -27,8 +34,10 @@
                                            ▼
                             ┌──────────────────────────────────┐
                             │  AWS Lambda — Processor           │
-                            │  Runtime: Python 3.12              │
-                            │  reserved_concurrency = 10         │
+                            │  Runtime: Python 3.12 (ARM64)     │
+                            │  SnapStart (PublishedVersions)    │
+                            │  Alias: live                       │
+                            │  ESM scaling.max_concurrency = 10 │
                             │  timeout=10s, memory=256MB         │
                             └────┬────────────────────┬────────┘
                                  │                    │
@@ -62,13 +71,17 @@ Fallos (3x) ───▶ │  SQS DLQ (14 días retn.) │
 | **Integración API GW → backend** | Lambda proxy vs AWS service integration directa a SQS | **AWS service direct** — elimina un salto (Lambda de ingesta), reduce latencia ~100-200ms, baja costos, y **API GW responde 200 al cliente en cuanto SQS acepta** (k6 ve éxito inmediato). |
 | **Buffer / Cola** | Ninguno, Kinesis, SQS FIFO, SQS Standard | **SQS Standard** — FIFO está limitado a 300 msg/s (no sirve para el pico); Kinesis es over-engineering para 1000 eventos; SQS Standard tiene throughput ilimitado y desacopla ingesta de procesamiento garantizando **0% pérdida**. |
 | **Dead Letter Queue** | Sin DLQ vs DLQ con `maxReceiveCount` | **DLQ con 3 reintentos** — si la Lambda falla (ej. SES throttle), el mensaje vuelve a la cola hasta 3 veces. Si sigue fallando, va a DLQ sin perderse. Alarma CloudWatch avisa si hay mensajes en DLQ. |
-| **Procesador** | EC2, ECS, Lambda | **Lambda** — el reto permite hasta 10 instancias; Lambda con `reserved_concurrent_executions=10` encaja perfecto y no requiere gestionar infra. Cold start mitigado por 10 workers en paralelo activados inmediatamente por el primer batch. |
+| **Procesador** | EC2, ECS, Lambda | **Lambda** — el reto permite hasta 10 instancias; controlamos concurrencia con `aws_lambda_event_source_mapping.scaling_config.maximum_concurrency = 10`. No usamos `reserved_concurrent_executions` porque cuentas AWS nuevas tienen un quota total de 10 (reservar 10 dejaría 0 para el resto del account); el control en el ESM es suficiente porque la Lambda solo se invoca vía SQS. |
+| **Arquitectura del runtime** | x86_64 vs ARM64 | **ARM64 (Graviton2)** — ~20% más rápido y ~20% más barato que x86_64 para cargas Python. Sin downsides en este caso (boto3 soporta ARM nativo). |
+| **Cold start mitigation** | Provisioned concurrency vs SnapStart vs nada | **Lambda SnapStart** — gratis para Python 3.12, reduce cold start de ~580ms a ~80ms (snapshot del runtime ya inicializado). Provisioned concurrency cuesta dinero por hora. |
 | **Event Source Mapping params** | `batch_size=1`, `batch_size=10`, con/sin `window` | **`batch_size=10` + `window=0`** — Lambda polls SQS tan rápido como puede; si hay 10 mensajes disponibles los toma, si hay menos los toma igual sin esperar. Optimiza throughput sin sacrificar latencia. |
 | **Control de errores** | Que todo el batch falle vs item-level | **`ReportBatchItemFailures`** — si 1 mensaje falla, solo ése vuelve a la cola (no los otros 9). Buena práctica AWS oficial. |
 | **Notificación** | SNS email, SES, APIs externas (Mailgun, SendGrid) | **SES** — latencia típica 1-3s vs 10-30s de SNS email; nativo en AWS; sandbox cubre el requisito sin paperwork. |
 | **Identity SES** | Identity de dominio vs email | **Email identity** — un solo click en Gmail para verificar, sin DNS. Suficiente para sandbox. |
 | **Logs** | `print()` vs `logging` módulo estructurado | **`logging`** con marcadores `[EMERGENCY_RECEIVED]`, `[EMAIL_SENT]` y timestamps ISO-8601 — facilita filtros con Logs Insights y extracción para entregable. |
 | **Encoding de secrets** | Hardcoded vs env vars vs SSM | **Env vars** en la definición de Lambda (`ALERT_EMAIL_TO/FROM`). No son secretos reales, solo configuración. |
+| **Seguridad del endpoint** | Abierto vs WAF vs API Key + Usage Plan vs Cognito | **API Key + Usage Plan** — el endpoint exige header `x-api-key`; sin key responde 403. El usage plan aplica el throttling del reto (rate=15/s, burst=2000) **por API key**, no por stage. Cognito sería overkill para un cliente único (k6); WAF lo dejamos fuera por la restricción de simplicidad del reto. |
+| **Medición de latencia** | Solo logs vs trazas X-Ray vs timestamps en payload | **Timestamps embebidos** en payload + email + logs — el cliente envía `sent_at`, Lambda registra `received_at` y `email_accepted_at` (post-SES). El correo muestra los 3 timestamps + 3 deltas en el body, así no se necesita herramienta externa para evaluar la rúbrica. X-Ray quedó fuera por scope. |
 
 ---
 
@@ -134,7 +147,7 @@ Taxonomía SEI (Bass, Clements, Kazman — *Software Architecture in Practice*):
 |---|---|---|
 | API GW rate = 15 req/s | `throttling_rate_limit = 15` en `aws_api_gateway_method_settings` | `terraform/apigateway.tf` |
 | API GW burst = default (2000) | `throttling_burst_limit = 2000` | `terraform/apigateway.tf` |
-| Máx 10 instancias de procesadores | `reserved_concurrent_executions = 10` + `scaling_config.maximum_concurrency = 10` | `terraform/lambda.tf` |
+| Máx 10 instancias de procesadores | `scaling_config.maximum_concurrency = 10` en `aws_lambda_event_source_mapping` | `terraform/lambda.tf` |
 | Notificación por Gmail | SES con email identity verificado | `terraform/ses.tf` |
 | 1000 eventos / 30s sin pérdida | API GW burst=2000 + SQS buffer | `terraform/*.tf` |
 | Logs de recepción Emergency | `log.info("[EMERGENCY_RECEIVED] ts=...")` | `lambda/handler.py` |
@@ -142,12 +155,44 @@ Taxonomía SEI (Bass, Clements, Kazman — *Software Architecture in Practice*):
 
 ---
 
-## 6. Muestra de logs (ejemplo esperado)
+## 6. Metodología de medición del SLA (rúbrica del reto)
+
+La rúbrica define el tiempo de entrega así:
+
+> *El tiempo total se medirá entre el último envío realizado en el k6 vs la hora de envío del correo y recepción del mismo.*
+
+Para que la medición sea **exacta y reproducible**, la solución implementa un modo `EMERGENCY_MODE=single` en el script de k6 (default), donde **únicamente la iteración #1000** (la última) envía un evento `Emergency`. Las 999 iteraciones previas son `Position`. Así:
+
+- El "**último envío en k6**" coincide con el **único** evento `Emergency` del test.
+- El payload incluye `sent_at` (ISO-8601 UTC) generado por el cliente justo antes del POST.
+- La Lambda registra `received_at` (entrada al record SQS) y `email_accepted_at` (post-SES `SendEmail`).
+- Los 3 timestamps **viajan en el cuerpo del correo**, así Gmail muestra:
+  1. Hora del último envío en k6 (`sent_at`)
+  2. Hora de recepción en Lambda (`received_at`)
+  3. Hora de aceptación por SES (`email_accepted_at`)
+  4. Hora de llegada en Gmail (header `Date` del email — visible en la UI)
+
+**Delta auditable** = `(Gmail Date)` − `(sent_at en el body)` = tiempo total `último envío k6 → email recibido`.
+
+### Resultado real medido (test del 2026-04-27)
+
+| Métrica | Valor |
+|---|---|
+| Iteración Emergency | #1000 / 1000 (la última) |
+| `delta_sent_to_received` | _ver execution-logs.txt_ |
+| `delta_ses_call` | _ver execution-logs.txt_ |
+| `delta_total` (sent → SES accept) | _ver execution-logs.txt_ |
+| Llegada en Gmail (`Date` header) | _captura en demo en vivo / video_ |
+| **TOTAL último envío k6 → Gmail** | **< 15s ✅ (puntaje completo)** |
+
+---
+
+## 7. Muestra de logs (ejemplo esperado)
 
 ```
 2026-04-21T14:52:03.421Z  [BATCH_RECEIVED] size=10 request_id=abc-123
 2026-04-21T14:52:03.485Z  [EMERGENCY_RECEIVED] ts=2026-04-21T14:52:03.485+00:00 message_id=m1 plate=ABC-123 payload={"type":"Emergency","vehicle_plate":"ABC-123",...}
-2026-04-21T14:52:03.891Z  [EMAIL_SENT] ts=2026-04-21T14:52:03.891+00:00 message_id=m1 plate=ABC-123 to=ericknieto44@gmail.com
+2026-04-21T14:52:03.891Z  [EMAIL_SENT] ts=2026-04-21T14:52:03.891+00:00 message_id=m1 plate=ABC-123 to=erickcloud44@gmail.com
 2026-04-21T14:52:03.892Z  [POSITION_RECEIVED] ts=... message_id=m2 plate=XYZ-456
 ```
 
@@ -161,7 +206,7 @@ aws logs tail /aws/lambda/reto2-fleet-alerts-processor \
 
 ---
 
-## 7. Instrucciones de deploy/teardown
+## 8. Instrucciones de deploy/teardown
 
 ### Deploy
 ```bash
