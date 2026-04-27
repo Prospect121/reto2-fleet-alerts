@@ -572,37 +572,37 @@ function addFooter(slide, pageNum) {
     [
       { text: "Justificacion de decisiones", options: cellOpts },
       { text: "0.5", options: { ...cellOpts, align: "center" } },
-      { text: "Slide 4 + ARCHITECTURE.md seccion 2", options: cellOpts },
+      { text: "Slide 4 (tabla de 5 decisiones clave)", options: cellOpts },
       { text: "OK", options: checkOpts },
     ],
     [
       { text: "Atributo de calidad mas importante", options: cellOpts },
       { text: "0.5", options: { ...cellOpts, align: "center" } },
-      { text: "Slide 5 + ARCHITECTURE.md seccion 3", options: cellOpts },
+      { text: "Slide 5 (Performance + atributos secundarios)", options: cellOpts },
       { text: "OK", options: checkOpts },
     ],
     [
       { text: "Diagrama de arquitectura", options: cellOpts },
       { text: "0.5", options: { ...cellOpts, align: "center" } },
-      { text: "Slide 3 (architecture.drawio.svg)", options: cellOpts },
+      { text: "Slide 3 (diagrama completo us-east-1)", options: cellOpts },
       { text: "OK", options: checkOpts },
     ],
     [
       { text: "Tacticas de arquitectura", options: cellOpts },
       { text: "1.0", options: { ...cellOpts, align: "center" } },
-      { text: "Slide 6 + ARCHITECTURE.md seccion 4", options: cellOpts },
+      { text: "Slide 6 (4 categorias SEI)", options: cellOpts },
       { text: "OK", options: checkOpts },
     ],
     [
       { text: "Tiempo de entrega del correo < 15s", options: cellOpts },
       { text: "2.5", options: { ...cellOpts, align: "center", bold: true, color: GREEN } },
-      { text: "Demo en vivo + execution-logs.txt", options: cellOpts },
+      { text: "Slide 8 (1000/1000, 254ms, <15s)", options: cellOpts },
       { text: "OK", options: checkOpts },
     ],
     [
       { text: "Logs de recepcion y envio", options: cellOpts },
       { text: "incluido", options: { ...cellOpts, align: "center", italic: true } },
-      { text: "CloudWatch [EMERGENCY_RECEIVED] / [EMAIL_SENT]", options: cellOpts },
+      { text: "Slide 8 + CloudWatch Live Tail en demo", options: cellOpts },
       { text: "OK", options: checkOpts },
     ],
   ];
@@ -648,11 +648,11 @@ function addFooter(slide, pageNum) {
 
   // Repo card
   s.addShape(pres.shapes.RECTANGLE, {
-    x: 0.9, y: 4.2, w: 11.5, h: 2.0,
+    x: 0.9, y: 4.2, w: 11.5, h: 2.4,
     fill: { color: "1E293B" }, line: { color: ACCENT, width: 0 },
   });
   s.addShape(pres.shapes.RECTANGLE, {
-    x: 0.9, y: 4.2, w: 0.08, h: 2.0,
+    x: 0.9, y: 4.2, w: 0.08, h: 2.4,
     fill: { color: ACCENT }, line: { color: ACCENT, width: 0 },
   });
   s.addText("REPOSITORIO PUBLICO", {
@@ -663,25 +663,25 @@ function addFooter(slide, pageNum) {
     x: 1.2, y: 4.7, w: 11, h: 0.5,
     fontFace: FONT_HEAD, fontSize: 22, bold: true, color: WHITE, margin: 0,
   });
-  s.addText("Rama: v2-security-and-latency  |  Infra: 100% Terraform (30 recursos)  |  Lambda: Python 3.12 ARM64 + SnapStart", {
+  s.addText("Rama: v2-security-and-latency", {
     x: 1.2, y: 5.2, w: 11, h: 0.4,
     fontFace: FONT_BODY, fontSize: 13, color: "CBD5E1", margin: 0,
   });
   s.addText([
-    { text: "docs/ARCHITECTURE.md   ", options: { color: "60A5FA" } },
-    { text: "docs/execution-logs.txt   ", options: { color: "60A5FA" } },
-    { text: "docs/VIDEO_GUIDE.md", options: { color: "60A5FA" } },
+    { text: "Infraestructura: 100% Terraform (30 recursos AWS)", options: { color: "CBD5E1", breakLine: true } },
+    { text: "Procesador: AWS Lambda Python 3.12 ARM64 + SnapStart", options: { color: "CBD5E1", breakLine: true } },
+    { text: "Resultado: 1000/1000 OK | Lambda > SES 254 ms | Total k6 > Gmail < 15 s", options: { color: "60A5FA" } },
   ], {
-    x: 1.2, y: 5.65, w: 11, h: 0.4,
-    fontFace: "Consolas", fontSize: 12, margin: 0,
+    x: 1.2, y: 5.55, w: 11, h: 1.0,
+    fontFace: FONT_BODY, fontSize: 12, paraSpaceAfter: 4, margin: 0,
   });
 
   s.addText(`Equipo: ${TEAM.join("  |  ")}`, {
-    x: 0.9, y: 6.55, w: 11.5, h: 0.3,
+    x: 0.9, y: 6.75, w: 11.5, h: 0.3,
     fontFace: FONT_HEAD, fontSize: 11, bold: true, color: "CBD5E1", margin: 0,
   });
   s.addText("Diplomado Arquitecturas Cloud  |  Modulo 2  |  2026-04-27", {
-    x: 0.9, y: 6.85, w: 11.5, h: 0.3,
+    x: 0.9, y: 7.05, w: 11.5, h: 0.3,
     fontFace: FONT_BODY, fontSize: 10, color: "64748B", margin: 0,
   });
 }
